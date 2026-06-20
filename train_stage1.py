@@ -18,6 +18,7 @@ from training.stage1_epochs import (
     train_ah_epoch, eval_ah_epoch,
 )
 from utils.seed import set_seed
+from utils.tracking import track_run
 
 
 def run(cfg, task, seed):
@@ -58,28 +59,40 @@ def run(cfg, task, seed):
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=5)
 
+    run_name = getattr(cfg, "run_name", "") or f"stage1_{task}_seed{seed}"
     best_mf1, patience = -1.0, 0
-    for epoch in range(cfg.epochs):
-        print(f"\n{'='*12} [{task} seed={seed}] Epoch {epoch+1}/{cfg.epochs} {'='*12}")
-        tr = train_fn(model, optimizer, train_loader, criterion, device)
-        ev = eval_fn(model, val_loader, criterion, device)
-        scheduler.step(ev["mf1"])
 
-        print(f"TRAIN | Loss: {tr['loss']:.4f} | mF1: {tr['mf1']:.4f}")
-        print(f"VAL   | Loss: {ev['loss']:.4f} | mF1: {ev['mf1']:.4f} | UAR: {ev['uar']:.4f}")
+    with track_run(run_name, cfg, seed, enabled=getattr(cfg, "use_mlflow", True),
+                   extra_params={"task": task}) as tracker:
+        for epoch in range(cfg.epochs):
+            print(f"\n{'='*12} [{task} seed={seed}] Epoch {epoch+1}/{cfg.epochs} {'='*12}")
+            tr = train_fn(model, optimizer, train_loader, criterion, device)
+            ev = eval_fn(model, val_loader, criterion, device)
+            scheduler.step(ev["mf1"])
 
-        if ev["mf1"] > best_mf1:
-            best_mf1, patience = ev["mf1"], 0
-            torch.save(model.state_dict(), out_path)
-            print(f"    ✓ Saved (val mF1: {best_mf1:.4f})")
-        else:
-            patience += 1
-            if patience >= cfg.max_patience:
-                print(f"Early stopping at epoch {epoch+1}")
-                break
+            tracker.log_metrics({f"train_{k}": v for k, v in tr.items()}, step=epoch)
+            tracker.log_metrics({f"val_{k}": v for k, v in ev.items()}, step=epoch)
+            tracker.log_metrics({"lr": optimizer.param_groups[0]["lr"]}, step=epoch)
 
-    model.load_state_dict(torch.load(out_path, map_location=device))
-    test_log = eval_fn(model, test_loader, criterion, device)
+            print(f"TRAIN | Loss: {tr['loss']:.4f} | mF1: {tr['mf1']:.4f}")
+            print(f"VAL   | Loss: {ev['loss']:.4f} | mF1: {ev['mf1']:.4f} | UAR: {ev['uar']:.4f}")
+
+            if ev["mf1"] > best_mf1:
+                best_mf1, patience = ev["mf1"], 0
+                torch.save(model.state_dict(), out_path)
+                print(f"    ✓ Saved (val mF1: {best_mf1:.4f})")
+            else:
+                patience += 1
+                if patience >= cfg.max_patience:
+                    print(f"Early stopping at epoch {epoch+1}")
+                    break
+
+        model.load_state_dict(torch.load(out_path, map_location=device))
+        test_log = eval_fn(model, test_loader, criterion, device)
+        tracker.log_metrics({f"test_{k}": v for k, v in test_log.items()})
+        tracker.log_metrics({"best_val_mf1": best_mf1})
+        tracker.log_artifact(out_path)
+
     print(f"\nTEST [{task}] | mF1: {test_log['mf1']:.4f} | UAR: {test_log['uar']:.4f}")
     return test_log
 

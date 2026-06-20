@@ -7,23 +7,15 @@
 Это нужно чтобы показать что разница E3 vs E4 статистически значима.
 """
 import json
+import os
 import numpy as np
 
-from configs.configs import Stage2NoSSLConfig, Stage2SSLConfig, Stage2GradNormConfig
+from configs.configs import (
+    Stage2NoSSLConfig, Stage2SSLConfig, Stage2GradNormConfig, RESULTS_DIR,
+)
 from train_stage2 import run
 
-SEEDS      = [42, 0, 123]
-# MOSEI_PATH = "data/mosei"
-# BAH_PATH   = "data/bah"
-
-# EMB = dict(
-#     mosei_train_emb      = "data/mosei/embeddings_cache/CMU-MOSEI_train_bge-small_embeddings.pkl",
-#     mosei_validation_emb = "data/mosei/embeddings_cache/CMU-MOSEI_validation_bge-small_embeddings.pkl",
-#     mosei_test_emb       = "data/mosei/embeddings_cache/CMU-MOSEI_test_bge-small_embeddings.pkl",
-#     bah_train_emb        = "data/bah/embeddings_cache/BAH_train_bge-small_embeddings.pkl",
-#     bah_val_emb          = "data/bah/embeddings_cache/BAH_val_bge-small_embeddings.pkl",
-#     bah_test_emb         = "data/bah/embeddings_cache/BAH_test_bge-small_embeddings.pkl",
-# )
+SEEDS = [42, 0, 123]
 
 EXPERIMENTS = {
     "E3_fusion_no_ssl": lambda: Stage2NoSSLConfig(),
@@ -43,8 +35,9 @@ def run_multiseed(name, cfg_factory):
     per_seed = {m: [] for m in METRICS}
     for seed in SEEDS:
         cfg = cfg_factory()
-        cfg.output_path  = f"best_models/{name}_seed{seed}.pt"
-        cfg.history_path = f"best_models/{name}_seed{seed}_history.json"
+        cfg.output_path  = f"{RESULTS_DIR}/{name}_seed{seed}.pt"
+        cfg.history_path = f"{RESULTS_DIR}/{name}_seed{seed}_history.json"
+        cfg.run_name     = f"{name}_seed{seed}"
         print(f"\n{'#'*22} {name} | seed {seed} {'#'*22}")
         test_log = run(cfg, seed=seed)
         for m in METRICS:
@@ -55,7 +48,8 @@ def run_multiseed(name, cfg_factory):
 def main():
     all_results = {name: run_multiseed(name, f) for name, f in EXPERIMENTS.items()}
 
-    with open("best_models/ablation_results.json", "w") as f:
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    with open(f"{RESULTS_DIR}/ablation_results.json", "w") as f:
         json.dump(all_results, f, indent=4)
 
     print("\n\n" + "=" * 78)

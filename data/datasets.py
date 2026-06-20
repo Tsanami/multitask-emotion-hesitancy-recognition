@@ -51,7 +51,19 @@ class DatasetEmotionAHFusion(Dataset):
         self.x = texts
         self.y = labels[0]
 
-        if path_to_emb is None:
+        # path_to_emb трактуется как путь к кэшу: есть файл → загрузить,
+        # нет → вычислить эмбеддинги и сохранить туда же (один раз).
+        if path_to_emb and os.path.exists(path_to_emb):
+            print(f"Loading embeddings from {path_to_emb}...")
+            with open(path_to_emb, "rb") as f:
+                self.text_embedding = pickle.load(f)
+            if len(self.text_embedding) != len(texts):
+                raise ValueError(
+                    f"Кэш {path_to_emb} рассинхронизирован с данными: "
+                    f"{len(self.text_embedding)} эмбеддингов vs {len(texts)} текстов. "
+                    f"Удалите устаревший кэш для пересчёта."
+                )
+        else:
             if model not in SUPPORTED_MODELS:
                 raise ValueError(f"model must be one of {list(SUPPORTED_MODELS)}")
 
@@ -70,18 +82,17 @@ class DatasetEmotionAHFusion(Dataset):
                     feat = extractor(**enc).last_hidden_state.squeeze(0).cpu()
                 self.text_embedding.append(feat)
 
-            # Автосохранение
-            cache_dir  = os.path.join(path, "embeddings_cache")
-            os.makedirs(cache_dir, exist_ok=True)
-            save_path  = os.path.join(cache_dir, f"{dataset}_{part}_{model}_embeddings.pkl")
+            # Сохраняем по запрошенному пути, иначе — в дефолтный кэш рядом с данными
+            if path_to_emb:
+                save_path = path_to_emb
+                os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+            else:
+                cache_dir = os.path.join(path, "embeddings_cache")
+                os.makedirs(cache_dir, exist_ok=True)
+                save_path = os.path.join(cache_dir, f"{dataset}_{part}_{model}_embeddings.pkl")
             with open(save_path, "wb") as f:
                 pickle.dump(self.text_embedding, f)
             print(f"Embeddings saved → {save_path}")
-
-        else:
-            print(f"Loading embeddings from {path_to_emb}...")
-            with open(path_to_emb, "rb") as f:
-                self.text_embedding = pickle.load(f)
 
         self.n_samples = len(texts)
 

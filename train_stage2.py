@@ -19,6 +19,7 @@ from training.epochs import train_one_epoch, eval_one_epoch
 from utils.history import History
 from utils.seed import set_seed
 from utils.checkpointing import save_checkpoint_with_config
+from utils.tracking import track_run
 
 
 def run(cfg, seed=42):
@@ -89,50 +90,66 @@ def run(cfg, seed=42):
     best_f1 = -1.0
     patience_counter = 0
 
-    # ── Цикл обучения ─────────────────────────────────────────────────────────
-    for epoch in range(cfg.epochs):
-        print(f"\n{'='*15} Epoch {epoch+1}/{cfg.epochs} {'='*15}")
+    variant   = "gradnorm" if use_gradnorm else ("ssl" if getattr(cfg, "use_ssl", False) else "no_ssl")
+    run_name  = getattr(cfg, "run_name", "") or f"stage2_{variant}_seed{seed}"
 
-        if use_gradnorm:
-            train_log = train_one_epoch_gradnorm(
-                model, optimizer, train_loader, gradnorm_loss,
-                device, cfg, current_epoch=epoch,
+    with track_run(run_name, cfg, seed, enabled=getattr(cfg, "use_mlflow", True)) as tracker:
+        # ── Цикл обучения ──────────────────────────────────────────────────────
+        for epoch in range(cfg.epochs):
+            print(f"\n{'='*15} Epoch {epoch+1}/{cfg.epochs} {'='*15}")
+
+            if use_gradnorm:
+                train_log = train_one_epoch_gradnorm(
+                    model, optimizer, train_loader, gradnorm_loss,
+                    device, cfg, current_epoch=epoch,
+                )
+            else:
+                train_log = train_one_epoch(
+                    model, optimizer, train_loader,
+                    criterion_emo, criterion_ah, criterion_ah_ssl,
+                    device, cfg, current_epoch=epoch,
+                )
+            val_log = eval_one_epoch(
+                model, val_loader, criterion_emo, criterion_ah, device
             )
-        else:
-            train_log = train_one_epoch(
-                model, optimizer, train_loader,
-                criterion_emo, criterion_ah, criterion_ah_ssl,
-                device, cfg, current_epoch=epoch,
-            )
-        val_log = eval_one_epoch(
-            model, val_loader, criterion_emo, criterion_ah, device
-        )
 
-        scheduler.step(val_log["overall_f1"])
-        history.update(train_log, val_log, optimizer)
-        history.save()
+            scheduler.step(val_log["overall_f1"])
+            history.update(train_log, val_log, optimizer)
+            history.save()
 
-        print(f"TRAIN | {train_log['ssl_status']}"
-              f" | Emo mF1: {train_log['emo_mf1']:.4f} | AH mF1: {train_log['ah_mf1']:.4f}")
-        print(f"VAL   | Emo mF1: {val_log['emo_mf1']:.4f} | Emo UAR: {val_log['emo_uar']:.4f}"
-              f" | AH mF1: {val_log['ah_mf1']:.4f} | AH UAR: {val_log['ah_uar']:.4f}"
-              f" | Overall: {val_log['overall_f1']:.4f}"
-              f" | LR: {optimizer.param_groups[0]['lr']:.2e}")
+            tracker.log_metrics(
+                {f"train_{k}": v for k, v in train_log.items()}, step=epoch)
+            tracker.log_metrics(
+                {f"val_{k}": v for k, v in val_log.items()}, step=epoch)
+            tracker.log_metrics({"lr": optimizer.param_groups[0]["lr"]}, step=epoch)
 
-        if val_log["overall_f1"] > best_f1:
-            best_f1 = val_log["overall_f1"]
-            patience_counter = 0
-            save_checkpoint_with_config(model, cfg, cfg.output_path, seed=seed)
-            print(f"    ✓ Saved (overall F1: {best_f1:.4f})")
-        else:
-            patience_counter += 1
-            if patience_counter >= cfg.max_patience:
-                print(f"Early stopping at epoch {epoch+1}")
-                break
+            print(f"TRAIN | {train_log['ssl_status']}"
+                  f" | Emo mF1: {train_log['emo_mf1']:.4f} | AH mF1: {train_log['ah_mf1']:.4f}")
+            print(f"VAL   | Emo mF1: {val_log['emo_mf1']:.4f} | Emo UAR: {val_log['emo_uar']:.4f}"
+                  f" | AH mF1: {val_log['ah_mf1']:.4f} | AH UAR: {val_log['ah_uar']:.4f}"
+                  f" | Overall: {val_log['overall_f1']:.4f}"
+                  f" | LR: {optimizer.param_groups[0]['lr']:.2e}")
 
-    # ── Тест ──────────────────────────────────────────────────────────────────
-    model.load_state_dict(torch.load(cfg.output_path, map_location=device))
-    test_log = eval_one_epoch(model, test_loader, criterion_emo, criterion_ah, device)
+            if val_log["overall_f1"] > best_f1:
+                best_f1 = val_log["overall_f1"]
+                patience_counter = 0
+                save_checkpoint_with_config(model, cfg, cfg.output_path, seed=seed)
+                print(f"    ✓ Saved (overall F1: {best_f1:.4f})")
+            else:
+                patience_counter += 1
+                if patience_counter >= cfg.max_patience:
+                    print(f"Early stopping at epoch {epoch+1}")
+                    break
+
+        # ── Тест ───────────────────────────────────────────────────────────────
+        model.load_state_dict(torch.load(cfg.output_path, map_location=device))
+        test_log = eval_one_epoch(model, test_loader, criterion_emo, criterion_ah, device)
+
+        tracker.log_metrics({f"test_{k}": v for k, v in test_log.items()})
+        tracker.log_metrics({"best_val_overall_f1": best_f1})
+        tracker.log_artifact(cfg.output_path)
+        tracker.log_artifact(cfg.output_path.replace(".pt", ".config.json"))
+        tracker.log_artifact(cfg.history_path)
 
     print(f"\nTEST | Emo mF1: {test_log['emo_mf1']:.4f} | Emo UAR: {test_log['emo_uar']:.4f}")
     print(f"     | AH mF1:  {test_log['ah_mf1']:.4f}  | AH UAR:  {test_log['ah_uar']:.4f}")
