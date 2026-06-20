@@ -1,64 +1,252 @@
 """
-Построение графиков для НИРа из History JSON.
+Построение графиков для НИРа. Поддерживает два источника данных:
 
-    python -m utils.plotting best_models/E4_fusion_ssl_seed42_history.json
+  1. JSON history (обратная совместимость):
+       python -m utils.plotting mehr/results/E4_fusion_ssl_seed42_history.json
 
-Строит:
-  - кривые train/val mF1 по эпохам (обе задачи)
-  - SSL coverage по эпохам (доля уверенных псевдо-меток)
-  - распределение псевдо-меток эмоций по классам (последняя эпоха)
+  2. MLflow run по имени или run_id:
+       python -m utils.plotting --run  E4_fusion_ssl_seed42
+       python -m utils.plotting --run-id b5fb589368c5...
+
+  3. Сравнение нескольких runs на одном графике:
+       python -m utils.plotting --compare E3_fusion_no_ssl_seed42 E4_fusion_ssl_seed42
+
+Строит для каждого run:
+  - кривые train/val mF1 по эпохам (EMO + AH)
+  - кривую val overall F1 по эпохам
+  - SSL coverage по эпохам (если есть)
+  - распределение псевдо-меток эмоций по классам, последняя эпоха (если есть)
+
+При --compare строит только кривую val overall F1 — overlay всех runs.
 """
 import sys
 import json
+import os
+import tempfile
 import numpy as np
 
 EMO_NAMES = ["Neutral", "Anger", "Disgust", "Fear", "Happiness", "Sadness", "Surprise"]
 
 
-def plot_history(history_path, out_prefix=None):
+# ── Загрузчики ─────────────────────────────────────────────────────────────────
+
+def _load_from_json(path: str) -> dict:
+    with open(path) as f:
+        return json.load(f)
+
+
+def _mlflow_client():
+    from utils.tracking import TRACKING_URI
+    from mlflow.tracking import MlflowClient
+    return MlflowClient(TRACKING_URI)
+
+
+def _get_run_id(client, run_name: str = None, run_id: str = None) -> str:
+    if run_id:
+        return run_id
+    import mlflow
+    from utils.tracking import TRACKING_URI, EXPERIMENT_NAME
+    mlflow.set_tracking_uri(TRACKING_URI)
+    runs = mlflow.search_runs(
+        experiment_names=[EXPERIMENT_NAME],
+        filter_string=f"run_name = '{run_name}'",
+        order_by=["start_time DESC"],
+    )
+    if runs.empty:
+        raise ValueError(f"Run '{run_name}' не найден в эксперименте '{EXPERIMENT_NAME}'")
+    if len(runs) > 1:
+        print(f"[plotting] Найдено {len(runs)} runs с именем '{run_name}', берём последний")
+    return runs.iloc[0].run_id
+
+
+def _metric_history(client, rid: str, key: str) -> list:
+    """Возвращает список float-значений по шагам (отсортировано)."""
+    entries = client.get_metric_history(rid, key)
+    if not entries:
+        return []
+    return [m.value for m in sorted(entries, key=lambda m: m.step)]
+
+
+def _load_from_mlflow(run_name: str = None, run_id: str = None) -> dict:
+    """
+    Загружает метрики run из MLflow в формат, совместимый с JSON history.
+    pseudo_emo_hist берётся из артефакта (history.json), если залогирован.
+    """
+    client = _mlflow_client()
+    rid = _get_run_id(client, run_name, run_id)
+
+    h = {}
+    metric_map = {
+        "train_emo_mf1": "train_emo_mf1",
+        "train_ah_mf1":  "train_ah_mf1",
+        "val_emo_mf1":   "val_emo_mf1",
+        "val_emo_uar":   "val_emo_uar",
+        "val_ah_mf1":    "val_ah_mf1",
+        "val_ah_uar":    "val_ah_uar",
+        "val_overall_f1": "val_overall_f1",
+        "train_cov_ssl_emo": "train_cov_ssl_emo",
+        "train_cov_ssl_ah":  "train_cov_ssl_ah",
+        "train_n_ssl_emo":   "train_n_ssl_emo",
+        "train_n_ssl_ah":    "train_n_ssl_ah",
+        "train_loss":    "train_loss",
+        "lr":            "lr",
+    }
+    for dst, src in metric_map.items():
+        vals = _metric_history(client, rid, src)
+        if vals:
+            h[dst] = vals
+
+    if "train_emo_mf1" not in h:
+        raise ValueError(f"Run {rid}: метрики не найдены. Убедись, что run завершён.")
+
+    # pseudo_emo_hist: список списков (не числовой → в MLflow нет)
+    # пробуем достать из артефакта history.json
+    h["train_pseudo_emo_hist"] = _try_load_pseudo_hist(client, rid)
+
+    return h
+
+
+def _try_load_pseudo_hist(client, rid: str) -> list:
+    """Скачивает залогированный history-артефакт и возвращает pseudo_emo_hist."""
+    try:
+        artifacts = client.list_artifacts(rid)
+        history_art = next(
+            (a for a in artifacts if a.path.endswith("_history.json")), None
+        )
+        if history_art is None:
+            return []
+        with tempfile.TemporaryDirectory() as tmp:
+            local = client.download_artifacts(rid, history_art.path, tmp)
+            with open(local) as f:
+                data = json.load(f)
+            return data.get("train_pseudo_emo_hist", [])
+    except Exception:
+        return []
+
+
+# ── Графики ────────────────────────────────────────────────────────────────────
+
+def _savefig(fig, path):
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+    print(f"saved {path}")
+
+
+def plot_single(h: dict, title: str = "", out_prefix: str = "plot"):
+    """Строит все 4 графика для одного run (из dict в формате history)."""
     import matplotlib.pyplot as plt
 
-    with open(history_path) as f:
-        h = json.load(f)
+    epochs = range(1, len(h.get("train_emo_mf1", h.get("val_emo_mf1", []))) + 1)
 
-    out_prefix = out_prefix or history_path.replace(".json", "")
-    epochs = range(1, len(h["train_loss"]) + 1)
-
-    # ── 1. Кривые mF1 ─────────────────────────────────────────────────────────
+    # 1. Кривые mF1 ──────────────────────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(epochs, h["train_emo_mf1"], label="train EMO mF1", linestyle="--")
+    if "train_emo_mf1" in h:
+        ax.plot(epochs, h["train_emo_mf1"], label="train EMO mF1", linestyle="--")
     ax.plot(epochs, h["val_emo_mf1"],   label="val EMO mF1")
-    ax.plot(epochs, h["train_ah_mf1"],  label="train AH mF1", linestyle="--")
+    if "train_ah_mf1" in h:
+        ax.plot(epochs, h["train_ah_mf1"],  label="train AH mF1", linestyle="--")
     ax.plot(epochs, h["val_ah_mf1"],    label="val AH mF1")
-    ax.set_xlabel("Эпоха"); ax.set_ylabel("mF1"); ax.legend(); ax.grid(alpha=0.3)
-    ax.set_title("Кривые обучения")
-    fig.tight_layout(); fig.savefig(f"{out_prefix}_mf1.png", dpi=150)
-    print(f"saved {out_prefix}_mf1.png")
+    if "val_overall_f1" in h:
+        ax.plot(epochs, h["val_overall_f1"], label="val overall F1", linewidth=2, color="black")
+    ax.set_xlabel("Эпоха"); ax.set_ylabel("mF1 / F1")
+    ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    ax.set_title(f"Кривые обучения{' — ' + title if title else ''}")
+    _savefig(fig, f"{out_prefix}_mf1.png")
 
-    # ── 2. SSL coverage ───────────────────────────────────────────────────────
-    if "train_cov_ssl_emo" in h and any(h["train_cov_ssl_emo"]):
+    # 2. SSL coverage ────────────────────────────────────────────────────────
+    cov_emo = h.get("train_cov_ssl_emo", [])
+    cov_ah  = h.get("train_cov_ssl_ah", [])
+    if cov_emo and any(v > 0 for v in cov_emo):
         fig, ax = plt.subplots(figsize=(7, 4))
-        ax.plot(epochs, h["train_cov_ssl_emo"], label="EMO pseudo-label coverage")
-        ax.plot(epochs, h["train_cov_ssl_ah"],  label="AH pseudo-label coverage")
+        ax.plot(epochs, cov_emo, label="EMO pseudo-label coverage")
+        if cov_ah:
+            ax.plot(epochs, cov_ah, label="AH pseudo-label coverage")
         ax.set_xlabel("Эпоха"); ax.set_ylabel("Доля уверенных псевдо-меток")
         ax.legend(); ax.grid(alpha=0.3); ax.set_ylim(0, 1)
-        ax.set_title("SSL coverage по эпохам")
-        fig.tight_layout(); fig.savefig(f"{out_prefix}_ssl_coverage.png", dpi=150)
-        print(f"saved {out_prefix}_ssl_coverage.png")
+        ax.set_title(f"SSL coverage{' — ' + title if title else ''}")
+        _savefig(fig, f"{out_prefix}_ssl_coverage.png")
 
-    # ── 3. Распределение псевдо-меток эмоций (последняя эпоха) ────────────────
-    if "train_pseudo_emo_hist" in h and h["train_pseudo_emo_hist"]:
-        last_hist = np.array(h["train_pseudo_emo_hist"][-1])
+    # 3. Распределение псевдо-меток (последняя эпоха) ──────────────────────
+    pseudo_hist = h.get("train_pseudo_emo_hist", [])
+    if pseudo_hist:
+        last = np.array(pseudo_hist[-1])
         fig, ax = plt.subplots(figsize=(7, 4))
-        ax.bar(EMO_NAMES, last_hist)
-        ax.set_ylabel("Кол-во псевдо-меток"); ax.set_title("Распределение псевдо-меток эмоций (последняя эпоха)")
+        ax.bar(EMO_NAMES, last)
+        ax.set_ylabel("Кол-во псевдо-меток")
+        ax.set_title(f"Псевдо-метки EMO, последняя эпоха{' — ' + title if title else ''}")
         plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
-        fig.tight_layout(); fig.savefig(f"{out_prefix}_pseudo_hist.png", dpi=150)
-        print(f"saved {out_prefix}_pseudo_hist.png")
+        _savefig(fig, f"{out_prefix}_pseudo_hist.png")
 
+
+def plot_compare(runs: list[tuple[str, dict]], out_prefix: str = "compare"):
+    """
+    Накладывает кривые val overall F1 нескольких runs.
+    runs: [(label, history_dict), ...]
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for label, h in runs:
+        vals = h.get("val_overall_f1", [])
+        if vals:
+            ax.plot(range(1, len(vals) + 1), vals, label=label)
+    ax.set_xlabel("Эпоха"); ax.set_ylabel("val overall F1")
+    ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    ax.set_title("Сравнение runs — val overall F1")
+    _savefig(fig, f"{out_prefix}_compare.png")
+
+
+# ── Обратная совместимость ─────────────────────────────────────────────────────
+
+def plot_history(history_path: str, out_prefix: str = None):
+    """Старый API: принимает путь к JSON и строит графики."""
+    h = _load_from_json(history_path)
+    prefix = out_prefix or history_path.replace(".json", "")
+    title  = os.path.basename(history_path).replace("_history.json", "")
+    plot_single(h, title=title, out_prefix=prefix)
+
+
+# ── CLI ────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("usage: python -m utils.plotting <history.json> [out_prefix]")
-        sys.exit(1)
-    plot_history(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Графики обучения из JSON или MLflow"
+    )
+    src = parser.add_mutually_exclusive_group(required=True)
+    src.add_argument("json", nargs="?", help="Путь к history JSON (старый способ)")
+    src.add_argument("--run",     metavar="RUN_NAME", help="MLflow run_name")
+    src.add_argument("--run-id",  metavar="RUN_ID",   help="MLflow run_id (UUID)")
+    src.add_argument("--compare", nargs="+", metavar="RUN_NAME",
+                     help="Несколько run_name для overlay val overall F1")
+    parser.add_argument("--out", metavar="PREFIX",
+                        help="Префикс выходных PNG (по умолчанию — имя run / JSON)")
+
+    args = parser.parse_args()
+
+    if args.json:
+        plot_history(args.json, args.out)
+
+    elif args.run or args.run_id:
+        run_kw = {"run_name": args.run} if args.run else {"run_id": args.run_id}
+        title  = args.run or args.run_id
+        prefix = args.out or title.replace("/", "_")
+        h = _load_from_mlflow(**run_kw)
+        plot_single(h, title=title, out_prefix=prefix)
+
+    else:  # --compare
+        loaded = []
+        for name in args.compare:
+            print(f"Loading {name}...")
+            try:
+                h = _load_from_mlflow(run_name=name)
+                loaded.append((name, h))
+            except ValueError as e:
+                print(f"  WARNING: {e}")
+        if not loaded:
+            print("Нет данных для сравнения"); sys.exit(1)
+        prefix = args.out or "compare"
+        plot_compare(loaded, out_prefix=prefix)
