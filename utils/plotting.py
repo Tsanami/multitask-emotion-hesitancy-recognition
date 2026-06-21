@@ -41,22 +41,79 @@ def _mlflow_client():
     return MlflowClient(TRACKING_URI)
 
 
-def _get_run_id(client, run_name: str = None, run_id: str = None) -> str:
-    if run_id:
-        return run_id
+def _all_runs():
+    """Возвращает DataFrame всех runs эксперимента (отсортировано по времени)."""
     import mlflow
     from utils.tracking import TRACKING_URI, EXPERIMENT_NAME
     mlflow.set_tracking_uri(TRACKING_URI)
-    runs = mlflow.search_runs(
+    df = mlflow.search_runs(
         experiment_names=[EXPERIMENT_NAME],
-        filter_string=f"run_name = '{run_name}'",
         order_by=["start_time DESC"],
     )
-    if runs.empty:
-        raise ValueError(f"Run '{run_name}' не найден в эксперименте '{EXPERIMENT_NAME}'")
-    if len(runs) > 1:
-        print(f"[plotting] Найдено {len(runs)} runs с именем '{run_name}', берём последний")
-    return runs.iloc[0].run_id
+    return df
+
+
+def list_runs():
+    """Печатает таблицу доступных runs (для --list)."""
+    df = _all_runs()
+    if df.empty:
+        print("Нет runs в эксперименте 'ssl_mepr'.")
+        return
+    cols = ["run_id", "tags.mlflow.runName", "status",
+            "metrics.test_emo_mf1", "metrics.test_ah_mf1", "metrics.test_overall_f1"]
+    cols = [c for c in cols if c in df.columns]
+    out = df[cols].copy()
+    out["run_id"] = out["run_id"].str[:12]          # укорочённый ID для читаемости
+    out.columns = [c.replace("tags.mlflow.", "").replace("metrics.", "") for c in cols]
+    print(out.to_string(index=False))
+
+
+def _get_run_id(client, run_name: str = None, run_id: str = None) -> str:
+    """
+    Возвращает полный run_id.
+    - run_name: ищет по тегу tags.mlflow.runName (регистронезависимо).
+    - run_id: поддерживает как полный UUID, так и prefix (≥4 символа).
+    """
+    df = _all_runs()
+    if df.empty:
+        raise ValueError("Нет runs в эксперименте 'ssl_mepr'. Сначала запусти обучение.")
+
+    name_col = "tags.mlflow.runName"
+
+    if run_id:
+        # Полный ID или prefix-match
+        if run_id in df["run_id"].values:
+            return run_id
+        matches = df[df["run_id"].str.startswith(run_id)]
+        if matches.empty:
+            _print_available(df, name_col)
+            raise ValueError(f"run_id с префиксом '{run_id}' не найден.")
+        if len(matches) > 1:
+            print(f"[plotting] Префикс '{run_id}' неоднозначен ({len(matches)} совпадений), берём последний")
+        return matches.iloc[0]["run_id"]
+
+    # Поиск по run_name через тег (MLflow хранит имя в tags.mlflow.runName)
+    if name_col not in df.columns:
+        _print_available(df, None)
+        raise ValueError("Колонка run_name не найдена. Укажи --run-id.")
+    matches = df[df[name_col] == run_name]
+    if matches.empty:
+        _print_available(df, name_col)
+        raise ValueError(f"Run '{run_name}' не найден.")
+    if len(matches) > 1:
+        print(f"[plotting] Найдено {len(matches)} runs с именем '{run_name}', берём последний")
+    return matches.iloc[0]["run_id"]
+
+
+def _print_available(df, name_col):
+    print("\nДоступные runs:")
+    rows = []
+    for _, r in df.iterrows():
+        name = r.get(name_col, "") if name_col else ""
+        rows.append(f"  {r['run_id'][:12]}  {name}")
+    print("\n".join(rows[:20]))
+    if len(rows) > 20:
+        print(f"  ... и ещё {len(rows)-20}. Используй --list для полного списка.")
 
 
 def _metric_history(client, rid: str, key: str) -> list:
@@ -219,13 +276,19 @@ if __name__ == "__main__":
     src = parser.add_mutually_exclusive_group(required=True)
     src.add_argument("json", nargs="?", help="Путь к history JSON (старый способ)")
     src.add_argument("--run",     metavar="RUN_NAME", help="MLflow run_name")
-    src.add_argument("--run-id",  metavar="RUN_ID",   help="MLflow run_id (UUID)")
+    src.add_argument("--run-id",  metavar="RUN_ID",   help="MLflow run_id (полный или префикс)")
     src.add_argument("--compare", nargs="+", metavar="RUN_NAME",
                      help="Несколько run_name для overlay val overall F1")
+    src.add_argument("--list", action="store_true",
+                     help="Показать все доступные runs и выйти")
     parser.add_argument("--out", metavar="PREFIX",
                         help="Префикс выходных PNG (по умолчанию — имя run / JSON)")
 
     args = parser.parse_args()
+
+    if args.list:
+        list_runs()
+        sys.exit(0)
 
     if args.json:
         plot_history(args.json, args.out)
