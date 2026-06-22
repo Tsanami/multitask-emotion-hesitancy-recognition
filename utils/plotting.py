@@ -126,35 +126,28 @@ def _metric_history(client, rid: str, key: str) -> list:
 
 def _load_from_mlflow(run_name: str = None, run_id: str = None) -> dict:
     """
-    Загружает метрики run из MLflow в формат, совместимый с JSON history.
+    Загружает ВСЕ метрики run из MLflow по шагам, в формат, совместимый с
+    JSON history. Работает и для стадии 1 (train_mf1/val_mf1/val_uar), и для
+    стадии 2 (train_emo_mf1/val_overall_f1/...).
     pseudo_emo_hist берётся из артефакта (history.json), если залогирован.
     """
     client = _mlflow_client()
     rid = _get_run_id(client, run_name, run_id)
 
-    h = {}
-    metric_map = {
-        "train_emo_mf1": "train_emo_mf1",
-        "train_ah_mf1":  "train_ah_mf1",
-        "val_emo_mf1":   "val_emo_mf1",
-        "val_emo_uar":   "val_emo_uar",
-        "val_ah_mf1":    "val_ah_mf1",
-        "val_ah_uar":    "val_ah_uar",
-        "val_overall_f1": "val_overall_f1",
-        "train_cov_ssl_emo": "train_cov_ssl_emo",
-        "train_cov_ssl_ah":  "train_cov_ssl_ah",
-        "train_n_ssl_emo":   "train_n_ssl_emo",
-        "train_n_ssl_ah":    "train_n_ssl_ah",
-        "train_loss":    "train_loss",
-        "lr":            "lr",
-    }
-    for dst, src in metric_map.items():
-        vals = _metric_history(client, rid, src)
-        if vals:
-            h[dst] = vals
+    # Имена всех залогированных метрик берём прямо из run-а — без хардкода стадии
+    run = client.get_run(rid)
+    metric_keys = list(run.data.metrics.keys())
+    if not metric_keys:
+        raise ValueError(
+            f"Run {rid}: метрики не найдены. Убедись, что run завершён "
+            f"(use_mlflow=True и обучение дошло хотя бы до первой эпохи)."
+        )
 
-    if "train_emo_mf1" not in h:
-        raise ValueError(f"Run {rid}: метрики не найдены. Убедись, что run завершён.")
+    h = {}
+    for key in metric_keys:
+        vals = _metric_history(client, rid, key)
+        if vals:
+            h[key] = vals
 
     # pseudo_emo_hist: список списков (не числовой → в MLflow нет)
     # пробуем достать из артефакта history.json
@@ -191,20 +184,58 @@ def _savefig(fig, path):
     print(f"saved {path}")
 
 
+def _is_stage2(h: dict) -> bool:
+    """Стадия 2 (fusion) логирует EMO/AH-метрики; стадия 1 — просто mf1/uar."""
+    return any(k in h for k in ("val_emo_mf1", "val_overall_f1", "train_emo_mf1"))
+
+
 def plot_single(h: dict, title: str = "", out_prefix: str = "plot"):
-    """Строит все 4 графика для одного run (из dict в формате history)."""
+    """Строит графики для одного run. Авто-режим: стадия 1 vs стадия 2."""
+    if _is_stage2(h):
+        _plot_stage2(h, title, out_prefix)
+    else:
+        _plot_stage1(h, title, out_prefix)
+
+
+def _plot_stage1(h: dict, title: str, out_prefix: str):
+    """Single-task (стадия 1): кривые mf1 (train/val) + UAR."""
     import matplotlib.pyplot as plt
 
-    epochs = range(1, len(h.get("train_emo_mf1", h.get("val_emo_mf1", []))) + 1)
+    val_mf1 = h.get("val_mf1", [])
+    if not val_mf1:
+        print(f"[plotting] В run нет 'val_mf1' — нечего рисовать. Метрики: {sorted(h)}")
+        return
+    epochs = range(1, len(val_mf1) + 1)
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    if "train_mf1" in h:
+        ax.plot(epochs, h["train_mf1"], label="train mF1", linestyle="--")
+    ax.plot(epochs, val_mf1, label="val mF1", linewidth=2)
+    if "val_uar" in h:
+        ax.plot(epochs, h["val_uar"], label="val UAR")
+    ax.set_xlabel("Эпоха"); ax.set_ylabel("mF1 / UAR")
+    ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    ax.set_title(f"Кривые обучения{' — ' + title if title else ''}")
+    _savefig(fig, f"{out_prefix}_mf1.png")
+
+
+def _plot_stage2(h: dict, title: str, out_prefix: str):
+    """Multi-task fusion (стадия 2): EMO+AH mF1, SSL coverage, псевдо-метки."""
+    import matplotlib.pyplot as plt
+
+    n = len(h.get("val_emo_mf1") or h.get("val_overall_f1") or [])
+    epochs = range(1, n + 1)
 
     # 1. Кривые mF1 ──────────────────────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(7, 4))
     if "train_emo_mf1" in h:
         ax.plot(epochs, h["train_emo_mf1"], label="train EMO mF1", linestyle="--")
-    ax.plot(epochs, h["val_emo_mf1"],   label="val EMO mF1")
+    if "val_emo_mf1" in h:
+        ax.plot(epochs, h["val_emo_mf1"], label="val EMO mF1")
     if "train_ah_mf1" in h:
-        ax.plot(epochs, h["train_ah_mf1"],  label="train AH mF1", linestyle="--")
-    ax.plot(epochs, h["val_ah_mf1"],    label="val AH mF1")
+        ax.plot(epochs, h["train_ah_mf1"], label="train AH mF1", linestyle="--")
+    if "val_ah_mf1" in h:
+        ax.plot(epochs, h["val_ah_mf1"], label="val AH mF1")
     if "val_overall_f1" in h:
         ax.plot(epochs, h["val_overall_f1"], label="val overall F1", linewidth=2, color="black")
     ax.set_xlabel("Эпоха"); ax.set_ylabel("mF1 / F1")
@@ -239,19 +270,23 @@ def plot_single(h: dict, title: str = "", out_prefix: str = "plot"):
 
 def plot_compare(runs: list[tuple[str, dict]], out_prefix: str = "compare"):
     """
-    Накладывает кривые val overall F1 нескольких runs.
+    Накладывает основную val-кривую нескольких runs.
+    Стадия 2 → val_overall_f1; стадия 1 → val_mf1.
     runs: [(label, history_dict), ...]
     """
     import matplotlib.pyplot as plt
 
+    # Метрика для сравнения: overall_f1 если есть хоть у одного, иначе mf1
+    metric = "val_overall_f1" if any("val_overall_f1" in h for _, h in runs) else "val_mf1"
+
     fig, ax = plt.subplots(figsize=(8, 5))
     for label, h in runs:
-        vals = h.get("val_overall_f1", [])
+        vals = h.get(metric, [])
         if vals:
             ax.plot(range(1, len(vals) + 1), vals, label=label)
-    ax.set_xlabel("Эпоха"); ax.set_ylabel("val overall F1")
+    ax.set_xlabel("Эпоха"); ax.set_ylabel(metric)
     ax.legend(fontsize=8); ax.grid(alpha=0.3)
-    ax.set_title("Сравнение runs — val overall F1")
+    ax.set_title(f"Сравнение runs — {metric}")
     _savefig(fig, f"{out_prefix}_compare.png")
 
 

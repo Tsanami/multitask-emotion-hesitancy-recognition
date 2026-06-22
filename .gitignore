@@ -8,6 +8,7 @@
 *.npy
 *.npz
 
+
 # Локальные папки с сырыми данными (если скачиваются внутрь проекта)
 data/raw/
 # datasets/
@@ -27,13 +28,13 @@ best_models/
 # TensorBoard
 runs/
 .tensorboard/
+results/
 
 # PyTorch Lightning логи
 lightning_logs/
 
 # Weights & Biases логи
 wandb/
-
 # Выходные файлы конфигуратора Hydra (логи, сгенерированные конфиги)
 outputs/
 multirun/
