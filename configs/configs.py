@@ -36,7 +36,7 @@ class BaseConfig:
 
     # Трекинг экспериментов (MLflow). run_name="" → авто из имени стадии/сида.
     use_mlflow: bool = True
-    run_name:   str  = ""
+    run_name:   str  = "stage1_emotion_seed42"
 
      # Модели стадии 1
     emo_model_path: str = f"{RESULTS_DIR}/Transformer_bge-small_emotion.pt"
