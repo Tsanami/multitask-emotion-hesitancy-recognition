@@ -178,6 +178,7 @@ def _try_load_pseudo_hist(client, rid: str) -> list:
 
 def _savefig(fig, path):
     fig.tight_layout()
+    path = 'results/plots/' + path
     fig.savefig(path, dpi=150)
     import matplotlib.pyplot as plt
     plt.close(fig)

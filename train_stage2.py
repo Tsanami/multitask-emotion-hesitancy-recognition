@@ -26,13 +26,10 @@ def run(cfg, seed=42):
     set_seed(seed)
     if torch.backends.mps.is_available():
         device = torch.device("mps")
-        print("MPS устройство доступно!")
     elif torch.cuda.is_available():
         device = torch.device("cuda")
-        print("CUDA устройство доступно!")
     else:
         device = torch.device("cpu")
-        print("MPS недоступно. Используем CPU.")
     os.makedirs(cfg.output_dir, exist_ok=True)
 
     # ── Данные ────────────────────────────────────────────────────────────────
