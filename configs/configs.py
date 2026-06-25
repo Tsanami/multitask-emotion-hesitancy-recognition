@@ -20,7 +20,6 @@ class BaseConfig:
     encoder_model: str = "bge-small"       # ключ из SUPPORTED_MODELS
 
     # Пути к кэшу эмбеддингов. Файл есть → загрузить; нет → вычислить и сохранить сюда.
-    # MOSEI помечен суффиксом eaai, чтобы не подтянуть устаревший кэш старого mosei_data.
     mosei_train_emb:      str = f"{CACHE_DIR}/CMU-MOSEI_train_eaai_bge-small_embeddings.pkl"
     mosei_validation_emb: str = f"{CACHE_DIR}/CMU-MOSEI_validation_eaai_bge-small_embeddings.pkl"
     mosei_test_emb:       str = f"{CACHE_DIR}/CMU-MOSEI_test_eaai_bge-small_embeddings.pkl"
@@ -67,7 +66,6 @@ class Stage2NoSSLConfig(BaseConfig):
     output_path: str  = f"{RESULTS_DIR}/fusion_no_ssl.pt"
     history_path: str = f"{RESULTS_DIR}/fusion_no_ssl_history.json"
 
-    # Заглушки — не используются
     ssl_warmup_epochs: int   = 0
     ssl_conf_thr_emo:  float = 0.6
     ssl_conf_thr_ah:   float = 0.6
@@ -81,7 +79,7 @@ class Stage2SSLConfig(BaseConfig):
     history_path:      str   = f"{RESULTS_DIR}/fusion_ssl_history.json"
 
     ssl_warmup_epochs: int   = 2
-    ssl_conf_thr_emo:  float = 0.6    # из config.toml статьи
+    ssl_conf_thr_emo:  float = 0.6   
     ssl_conf_thr_ah:   float = 0.6
     lambda_ssl:        float = 0.2
 
@@ -104,7 +102,6 @@ class Stage2GradNormConfig(BaseConfig):
     ssl_conf_thr_ah:   float = 0.6
     lambda_ssl:        float = 0.2
 
-    # GradNorm гиперпараметры (из config.toml статьи)
     alpha_sup:  float = 1.0
     w_lr_sup:   float = 0.005
     alpha_ssl:  float = 1.5

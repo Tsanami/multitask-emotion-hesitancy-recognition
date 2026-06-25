@@ -42,7 +42,7 @@ EXPERIMENTS = {
     "E3_fusion_no_ssl":        lambda: Stage2NoSSLConfig(),
     "E4_fusion_ssl":           lambda: Stage2SSLConfig(),
     "E5_fusion_gradnorm":      lambda: Stage2GradNormConfig(),
-    # E9: end-to-end разморозка stage-1 энкодеров (SSL + unfreeze) — лучший ран на seed 42
+    # E9: end-to-end разморозка stage-1 энкодеров (SSL + unfreeze)
     "E6_fusion_ssl_unfreeze":  lambda: Stage2SSLConfig(unfreeze_encoders=True),
 }
 
@@ -77,9 +77,6 @@ def run_one(name, seed):
 def run_multiseed_sequential(name):
     per_seed = {m: [] for m in METRICS}
     for seed in SEEDS:
-        if "E3" in name and seed in [42, 0, 123, 1, 2, 7]:
-            # E3_fusion_no_ssl — baseline, прогоняем только на 3 сидах, чтобы не тратить время
-            continue
         out = run_one(name, seed)
         for m in METRICS:
             per_seed[m].append(out[m])

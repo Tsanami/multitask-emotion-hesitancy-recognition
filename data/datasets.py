@@ -115,7 +115,6 @@ class DatasetEmotionAHFusion(Dataset):
 
 
 def custom_collate_fn(batch):
-    """Cell 15."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     batch  = [x for x in batch if x is not None]
     if not batch:

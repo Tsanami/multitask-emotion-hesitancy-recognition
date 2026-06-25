@@ -3,7 +3,7 @@ from .blocks import CustomMambaBlock
 
 
 class EmotionMamba(nn.Module):
-    """Cell 6. Альтернативный backbone на Mamba-блоках."""
+    """Альтернативный backbone на Mamba-блоках."""
     def __init__(
         self,
         input_dim_emotion=384,

@@ -2,10 +2,9 @@ import os
 import numpy as np
 import pandas as pd
 
-# Порядок колонок в MOSEI CSV → нужный порядок в статье
+# Порядок колонок в MOSEI CSV
 # CSV:  [Neutral, Anger, Disgust, Fear, Happiness, Sadness, Surprise]  (индексы 0-6)
-# Уже в нужном порядке — Neutral первым, как в ноутбуке inference.ipynb
-# (в EAAI-версии есть лишняя колонка Other — она не используется)
+# Уже в нужном порядке — Neutral первым
 MOSEI_EMOTION_COLS = ["Neutral", "Anger", "Disgust", "Fear", "Happiness", "Sadness", "Surprise"]
 
 # Сплиты EAAI лежат в файлах *_full.csv; внутренние имена частей оставляем прежними
@@ -18,7 +17,6 @@ MOSEI_PART_FILES = {
 
 def get_cmu_mosei_data(path, part="train"):
     """
-    Cell 13.
     part: 'train' | 'validation' | 'test'
     Возвращает: texts [N], labels [N, 7] float (интенсивности, Neutral первым)
     """
@@ -33,7 +31,6 @@ def get_cmu_mosei_data(path, part="train"):
 
 def get_bah_data(path, part="train"):
     """
-    Cell 13.
     part: 'train' | 'val' | 'test'
     Возвращает: texts [N], labels [N] int (0 или 1)
     """

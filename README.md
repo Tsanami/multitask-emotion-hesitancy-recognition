@@ -1,10 +1,10 @@
-# SSL-MEPR (текстовая модальность): ER + AHR
+# SSL-MEHR (текстовая модальность): ER + AHR
 
 Полуконтролируемое многозадачное кросс-доменное обучение для **текстового**
 распознавания эмоций (ER, CMU-MOSEI) и амбивалентности/хеджирования (AHR, BAH).
 
 Воспроизведение текстовой части [SSL-MEPR](https://github.com/LEYA-HSE/SSL-MEPR) с
-заменой задачи personality (FIv2) на AHR (BAH). **M** в MEPR = multitask.
+заменой задачи personality (FIv2) на AHR (BAH).
 
 **Исследовательский вопрос:** даёт ли кросс-доменная псевдоразметка (SSL) прирост
 mF1 на обеих задачах относительно multi-task без SSL?
@@ -77,8 +77,7 @@ Backbone `BAAI/bge-small-en-v1.5` (384d) скачивается из HuggingFace
 
 **Эмбеддинги** кешируются в `data/embeddings_cache/`. Логика `path_to_emb`: файл
 есть → загрузить (с проверкой, что длина кэша == числу текстов), нет → вычислить и
-сохранить туда же. MOSEI-кэш помечен суффиксом `eaai`, чтобы не подтянуть
-устаревший кэш старого `mosei_data`.
+сохранить туда же.
 
 ---
 
@@ -108,12 +107,8 @@ python train_stage2.py --ssl --ssl_conf_thr_emo 0.8 --lambda_ssl 0.3
 
 ### Ablation study
 ```bash
-# последовательно (одна GPU/CPU)
+# последовательно
 python run_experiments.py
-
-# параллельно: очередь (эксперимент × seed), N процессов на карту
-python run_experiments.py --parallel --gpus 0,1,2,3,4,5,6,7 --per-gpu 8
-python run_experiments.py --parallel --gpus 0 --per-gpu 8     # одна карта тоже ок
 ```
 Прогоняет эксперименты на `SEEDS` (по умолчанию 10 сидов), печатает таблицу
 mean ± std и дельту E4−E3 (вклад SSL). Результаты → `results/ablation_results.json`,
@@ -134,8 +129,7 @@ mean ± std и дельту E4−E3 (вклад SSL). Результаты → `
 
 ## Метрики
 
-Считаются в `training/measures.py` (per-column macro avg → mean — как в статье,
-**не** `sklearn.f1_score(average='macro')`).
+Считаются в `training/measures.py` 
 
 | Метрика | Задача | Что это |
 |---------|--------|---------|
@@ -145,8 +139,6 @@ mean ± std и дельту E4−E3 (вклад SSL). Результаты → `
 | `ah_wf1` | **только AHR** | weighted-average F1 (взвешенный по поддержке классов) |
 | `overall_f1` | обе | `(emo_mf1 + ah_mf1) / 2` — метрика выбора лучшей модели |
 
-Эмоции — multi-label предсказание: softmax → `transform_matrix` (если
-`prob[Neutral] ≥ 6/7` → всё 0; иначе эмоция=1 при `prob ≥ 1/7`).
 
 ---
 

@@ -14,7 +14,7 @@ class EmotionTransformer(nn.Module):
         dropout=0.0,
         num_emotions=7,
         positional_encoding=True,
-        **kwargs,                  # поглощает лишние аргументы из старых вызовов
+        **kwargs,                  
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
