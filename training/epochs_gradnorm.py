@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from tqdm import tqdm
 from .metrics import predict_emotions, mf1, uar
@@ -10,8 +11,9 @@ def train_one_epoch_gradnorm(model, optimizer, dataloader, gradnorm_loss,
     Веса лоссов обновляются динамически внутри gradnorm_loss.forward().
     """
     model.train()
-    model.emo_model.eval()
-    model.ah_model.eval()
+    if not getattr(cfg, "unfreeze_encoders", False):
+        model.emo_model.eval()
+        model.ah_model.eval()
 
     use_ssl = cfg.use_ssl and (current_epoch >= cfg.ssl_warmup_epochs)
     shared_params = gradnorm_loss.shared_params_from_model(model)
@@ -21,6 +23,14 @@ def train_one_epoch_gradnorm(model, optimizer, dataloader, gradnorm_loss,
     last_weights = {}
     emo_preds, emo_trues = [], []
     ah_preds,  ah_trues  = [], []
+
+    # ── SSL статистика (pseudo-label coverage) — паритет с epochs.py ───────────
+    # GradNorm считает псевдо-метки внутри loss.forward() и наружу их не отдаёт.
+    # Пересчитываем здесь тем же argmax по тем же логитам — результат идентичен
+    # тому, что использует GradNormMultiTaskLoss._collect (детерминированно).
+    n_ssl_emo_conf = n_ssl_emo_total = 0
+    n_ssl_ah_conf  = n_ssl_ah_total  = 0
+    pseudo_emo_hist = np.zeros(7, dtype=int)
 
     for batch in tqdm(dataloader, desc=f"Train GradNorm epoch {current_epoch+1}"):
         if batch is None:
@@ -63,9 +73,31 @@ def train_one_epoch_gradnorm(model, optimizer, dataloader, gradnorm_loss,
             ah_preds.extend(pred_ah.cpu().numpy())
             ah_trues.extend(ah_labels[valid_ah].long().cpu().numpy())
 
+        # ── SSL coverage + распределение псевдо-меток (для НИРа) ──────────────
+        # Реплика логики epochs.py; считаем под no_grad — на лосс не влияет.
+        if use_ssl:
+            with torch.no_grad():
+                if (~valid_emo).any():
+                    pred_u = emo_logits[~valid_emo]
+                    conf, pseudo = torch.max(torch.softmax(pred_u, dim=1), dim=1)
+                    mask = conf > cfg.ssl_conf_thr_emo
+                    n_ssl_emo_total += pred_u.size(0)
+                    n_ssl_emo_conf  += int(mask.sum().item())
+                    for c in pseudo[mask].cpu().numpy():
+                        pseudo_emo_hist[c] += 1
+                if (~valid_ah).any():
+                    pred_u = ah_logits[~valid_ah]
+                    conf, pseudo = torch.max(torch.softmax(pred_u, dim=1), dim=1)
+                    mask = conf > cfg.ssl_conf_thr_ah
+                    n_ssl_ah_total += pred_u.size(0)
+                    n_ssl_ah_conf  += int(mask.sum().item())
+
     n = len(dataloader)
     # Лог весов GradNorm — это важно для анализа в НИРе
     weights_str = " | ".join(f"{k}={v:.3f}" for k, v in last_weights.items())
+
+    cov_emo = n_ssl_emo_conf / n_ssl_emo_total if n_ssl_emo_total > 0 else 0.0
+    cov_ah  = n_ssl_ah_conf  / n_ssl_ah_total  if n_ssl_ah_total  > 0 else 0.0
 
     return {
         "loss":         running_loss      / n,
@@ -75,6 +107,14 @@ def train_one_epoch_gradnorm(model, optimizer, dataloader, gradnorm_loss,
         "loss_ah_ssl":  comp_totals["ah_ssl"]  / n,
         "gradnorm_weights": last_weights,
         "ssl_status":   f"weights: {weights_str}",
+        # ── SSL статистика для НИРа (паритет с epochs.py) ──
+        "n_ssl_emo":       n_ssl_emo_conf,
+        "n_ssl_emo_total": n_ssl_emo_total,
+        "cov_ssl_emo":     cov_emo,
+        "n_ssl_ah":        n_ssl_ah_conf,
+        "n_ssl_ah_total":  n_ssl_ah_total,
+        "cov_ssl_ah":      cov_ah,
+        "pseudo_emo_hist": pseudo_emo_hist.tolist(),
         "emo_mf1":      mf1(emo_trues, emo_preds) if emo_trues else 0.0,
         "ah_mf1":       mf1([[t] for t in ah_trues], [[p] for p in ah_preds]) if ah_trues else 0.0,
     }

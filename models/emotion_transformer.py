@@ -3,7 +3,7 @@ from .blocks import TransformerModelWithAttention
 
 
 class EmotionTransformer(nn.Module):
-    """Cell 8. Стадия 1 — unimodal emotion encoder."""
+    """Стадия 1 — unimodal emotion encoder."""
     def __init__(
         self,
         input_dim_emotion=384,

@@ -58,6 +58,53 @@ def uar(targets: list[np.ndarray] | np.ndarray,
         return np.mean(uar_scores), uar_scores
     return np.mean(uar_scores)
 
+def mwacc(targets: list[np.ndarray] | np.ndarray,
+          predicts: list[np.ndarray] | np.ndarray,
+          return_scores: bool = False) -> float | tuple[float, list[float]]:
+    """Mean weighted accuracy (для multilabel-эмоций).
+
+    mwacc = 1/C * sum_{i=1}^C 1/2 * ( TP/(TP+FN) + TN/(TN+FP) )
+
+    Для каждой бинарной колонки-класса i считается balanced accuracy
+    (полусумма sensitivity и specificity), затем среднее по C колонкам.
+    C = число колонок (для эмоций = 6, Neutral отброшен ещё на этапе trues/preds).
+
+    Совпадает по смыслу с macro-avg recall (uar), но считается напрямую
+    из счётчиков ошибок, без classification_report. Деление на ноль → 0.0.
+    """
+    targets = np.array(targets)
+    predicts = np.array(predicts)
+
+    scores = []
+    for i in range(predicts.shape[1]):
+        t = targets[:, i]
+        p = predicts[:, i]
+        tp = int(np.sum((t == 1) & (p == 1)))
+        fn = int(np.sum((t == 1) & (p == 0)))
+        tn = int(np.sum((t == 0) & (p == 0)))
+        fp = int(np.sum((t == 0) & (p == 1)))
+        sens = tp / (tp + fn) if (tp + fn) > 0 else 0.0   # recall / sensitivity
+        spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0   # specificity
+        scores.append(0.5 * (sens + spec))
+
+    if return_scores:
+        return float(np.mean(scores)), scores
+    return float(np.mean(scores))
+
+
+def wf1(targets: list[np.ndarray] | np.ndarray,
+        predicts: list[np.ndarray] | np.ndarray) -> float:
+    """Weighted-average F1 (взвешенный по поддержке классов). Для бинарного BAH.
+
+    В отличие от mf1 (macro, per-column-then-mean), это одна F1, усреднённая
+    по классам с весами = доля примеров класса. Принимает плоские метки 0/1.
+    """
+    targets = np.array(targets).ravel()
+    predicts = np.array(predicts).ravel()
+    cr = classification_report(targets, predicts, output_dict=True, zero_division=0)
+    return float(cr['weighted avg']['f1-score'])
+
+
 def acc_func(trues, preds):
     # print('acc', trues, preds)
     acc = []

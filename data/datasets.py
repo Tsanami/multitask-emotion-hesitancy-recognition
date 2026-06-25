@@ -18,7 +18,7 @@ SUPPORTED_MODELS = {
 
 class DatasetEmotionAHFusion(Dataset):
     """
-    Cell 15. Единый датасет для MOSEI и BAH.
+    Единый датасет для MOSEI и BAH.
 
     emo_label:
       - MOSEI: [7] float (сырые интенсивности, Neutral первым)

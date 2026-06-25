@@ -32,11 +32,11 @@ class BaseConfig:
     epochs:       int   = 100
     lr:           float = 1e-4
     weight_decay: float = 1e-5
-    max_patience: int   = 15
+    max_patience: int   = 5
 
     # Трекинг экспериментов (MLflow). run_name="" → авто из имени стадии/сида.
     use_mlflow: bool = True
-    run_name:   str  = "stage1_emotion_seed42"
+    run_name:   str  = ""
 
      # Модели стадии 1
     emo_model_path: str = f"{RESULTS_DIR}/Transformer_bge-small_emotion.pt"
@@ -52,6 +52,12 @@ class BaseConfig:
     # Лосс
     flag_emo_weight: bool = False    # веса w_c=(K-k_c)/k_c из статьи (Figure 4)
     flag_ah_weight:  bool = True
+
+    # ── Разморозка stage-1 энкодеров (опционально) ────────────────────────────
+    # ВАЖНО: размораживаются stage-1 трансформеры emo_model/ah_model, НЕ сам BGE
+    # (BGE в графе stage-2 отсутствует — эмбеддинги предвычислены и закешированы).
+    unfreeze_encoders: bool  = False   # снять requires_grad с emo_model/ah_model
+    encoder_lr:        float = 1e-5    # дискриминативный LR для энкодеров (< lr головы)
 
 
 

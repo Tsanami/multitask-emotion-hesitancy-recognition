@@ -55,12 +55,31 @@ def run(cfg, seed=42):
         hidden_dim=cfg.hidden_dim, out_features=cfg.out_features,
         num_transformer_heads=cfg.num_transformer_heads,
         tr_layer_number=cfg.tr_layer_number, dropout=cfg.dropout,
+        unfreeze_encoders=getattr(cfg, "unfreeze_encoders", False),
     ).to(device)
 
-    optimizer = torch.optim.Adam(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=cfg.lr, weight_decay=cfg.weight_decay,
-    )
+    if getattr(cfg, "unfreeze_encoders", False):
+        # Дискриминативный LR: энкодеры обучаются медленнее головы fusion,
+        # иначе тонкие stage-1 трансформеры переобучаются за пару эпох.
+        enc_ids = set(id(p) for p in model.emo_model.parameters()) | \
+                  set(id(p) for p in model.ah_model.parameters())
+        enc_params  = [p for p in model.parameters() if p.requires_grad and id(p) in enc_ids]
+        head_params = [p for p in model.parameters() if p.requires_grad and id(p) not in enc_ids]
+        optimizer = torch.optim.Adam(
+            [
+                {"params": head_params, "lr": cfg.lr},
+                {"params": enc_params,  "lr": getattr(cfg, "encoder_lr", 1e-5)},
+            ],
+            weight_decay=cfg.weight_decay,
+        )
+        print(f"[unfreeze] encoders trainable: head_lr={cfg.lr}, "
+              f"encoder_lr={getattr(cfg, 'encoder_lr', 1e-5)} "
+              f"({len(enc_params)} enc tensors, {len(head_params)} head tensors)")
+    else:
+        optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=cfg.lr, weight_decay=cfg.weight_decay,
+        )
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", factor=0.5, patience=5
     )
@@ -158,6 +177,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ssl", action="store_true", help="Обучать с SSL")
     parser.add_argument("--gradnorm", action="store_true", help="Использовать GradNorm-балансировку")
+    parser.add_argument("--unfreeze", action="store_true",
+                        help="Разморозить stage-1 энкодеры (НЕ сам BGE)")
+    parser.add_argument("--encoder_lr", type=float, default=None,
+                        help="Дискриминативный LR для размороженных энкодеров")
     # Переопределение любого поля конфига из командной строки
     parser.add_argument("--ssl_conf_thr_emo",  type=float, default=None)
     parser.add_argument("--ssl_conf_thr_ah",   type=float, default=None)
@@ -182,5 +205,11 @@ if __name__ == "__main__":
         val = getattr(args, key)
         if val is not None:
             setattr(cfg, key, val)
+
+    # Разморозка энкодеров
+    if args.unfreeze:
+        cfg.unfreeze_encoders = True
+    if args.encoder_lr is not None:
+        cfg.encoder_lr = args.encoder_lr
 
     run(cfg, seed=args.seed)

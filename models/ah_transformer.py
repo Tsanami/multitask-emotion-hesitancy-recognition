@@ -3,7 +3,7 @@ from .blocks import TransformerEncoderLayer
 
 
 class AHTransformer(nn.Module):
-    """Cell 9. Стадия 1 — unimodal AH encoder."""
+    """Стадия 1 — unimodal AH encoder."""
     def __init__(
         self,
         input_dim_ah=384,
@@ -19,7 +19,7 @@ class AHTransformer(nn.Module):
         super().__init__()
         self.hidden_dim = hidden_dim
 
-        self.per_proj = nn.Sequential(
+        self.ah_proj = nn.Sequential(
             nn.Linear(input_dim_ah, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.Dropout(dropout),
@@ -42,11 +42,11 @@ class AHTransformer(nn.Module):
         )
 
     def forward(self, ah_input=None, return_features=False, **kwargs):
-        per = self.per_proj(ah_input)
+        ah = self.ah_proj(ah_input)
         for layer in self.ah_encoder:
-            per = per + layer(per, per, per)
-        out_per = self.ah_fc_out(per.mean(dim=1))
+            ah = ah + layer(ah, ah, ah)
+        out_ah = self.ah_fc_out(ah.mean(dim=1))
 
         if return_features:
-            return {"ah_scores": out_per, "last_encoder_features": per}
-        return {"ah_scores": out_per}
+            return {"ah_scores": out_ah, "last_encoder_features": ah}
+        return {"ah_scores": out_ah}

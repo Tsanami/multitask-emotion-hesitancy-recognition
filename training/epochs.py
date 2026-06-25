@@ -1,14 +1,15 @@
 import torch
 from tqdm import tqdm
-from .metrics import predict_emotions, mf1, uar
+from .metrics import predict_emotions, mf1, uar, mwacc, wf1
 
 
 def train_one_epoch(model, optimizer, dataloader,
                     criterion_emo, criterion_ah, criterion_ah_ssl,
                     device, cfg, current_epoch=0):
     model.train()
-    model.emo_model.eval()
-    model.ah_model.eval()
+    if not getattr(cfg, "unfreeze_encoders", False):
+        model.emo_model.eval()
+        model.ah_model.eval()
 
     use_ssl = cfg.use_ssl and (current_epoch >= cfg.ssl_warmup_epochs)
 
@@ -179,7 +180,9 @@ def eval_one_epoch(model, dataloader, criterion_emo, criterion_ah, device):
         "loss_ah_sup":  loss_ah_sup  / n,
         "emo_mf1":      emo_mf1,
         "emo_uar":      uar(emo_trues, emo_preds),
+        "emo_mwacc":    mwacc(emo_trues, emo_preds),    # mean weighted acc (только эмоции)
         "ah_mf1":       ah_mf1,
         "ah_uar":       uar([[l] for l in ah_trues], [[p] for p in ah_preds]),
+        "ah_wf1":       wf1(ah_trues, ah_preds),         # weighted F1 (только BAH)
         "overall_f1":   (emo_mf1 + ah_mf1) / 2,
     }

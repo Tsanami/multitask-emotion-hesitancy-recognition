@@ -4,7 +4,7 @@ from .blocks import TransformerEncoderLayer
 
 
 class FusionTransformer(nn.Module):
-    """Cell 14. Стадия 2 — cross-domain fusion."""
+    """Стадия 2 — cross-domain fusion."""
     def __init__(
         self,
         emo_model,
@@ -16,13 +16,18 @@ class FusionTransformer(nn.Module):
         dropout=0.1,
         num_emotions=7,
         num_ah_classes=2,
+        unfreeze_encoders=False,
     ):
         super().__init__()
 
         self.emo_model = emo_model
         self.ah_model  = ah_model
-        for p in self.emo_model.parameters(): p.requires_grad = False
-        for p in self.ah_model.parameters():  p.requires_grad = False
+        # По умолчанию энкодеры заморожены (как в статье). При unfreeze_encoders=True
+        # их веса обучаются — но через дискриминативный LR (см. train_stage2.py),
+        # иначе они переобучаются за пару эпох.
+        requires_grad = bool(unfreeze_encoders)
+        for p in self.emo_model.parameters(): p.requires_grad = requires_grad
+        for p in self.ah_model.parameters():  p.requires_grad = requires_grad
 
         self.emo_proj = nn.Sequential(
             nn.Linear(self.emo_model.hidden_dim, hidden_dim),

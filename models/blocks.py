@@ -5,7 +5,6 @@ import torch.nn.functional as F
 
 
 class CustomMambaBlock(nn.Module):
-    """Cell 4"""
     def __init__(self, d_input, d_model, dropout=0.1):
         super().__init__()
         self.in_proj  = nn.Linear(d_input, d_model)
@@ -29,7 +28,6 @@ class CustomMambaBlock(nn.Module):
 
 
 class PositionWiseFeedForward(nn.Module):
-    """Cell 5"""
     def __init__(self, input_dim, hidden_dim, dropout=0.1):
         super().__init__()
         self.layer_1 = nn.Linear(input_dim, hidden_dim)
@@ -44,7 +42,6 @@ class PositionWiseFeedForward(nn.Module):
 
 
 class AddAndNorm(nn.Module):
-    """Cell 5"""
     def __init__(self, input_dim, dropout=0.1):
         super().__init__()
         self.norm    = nn.LayerNorm(input_dim)
@@ -55,7 +52,6 @@ class AddAndNorm(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    """Cell 5"""
     def __init__(self, d_model, dropout=0.1, max_len=5000):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
@@ -72,7 +68,6 @@ class PositionalEncoding(nn.Module):
 
 
 class TransformerEncoderLayer(nn.Module):
-    """Cell 5"""
     def __init__(self, input_dim, num_heads, dropout=0.1, positional_encoding=False):
         super().__init__()
         self.self_attention          = nn.MultiheadAttention(input_dim, num_heads, dropout=dropout, batch_first=True)
@@ -93,7 +88,6 @@ class TransformerEncoderLayer(nn.Module):
 
 
 class TransformerModelWithAttention(nn.Module):
-    """Cell 7"""
     def __init__(self, hidden_dim=128, num_heads=4, num_layers=8, dropout=0.1):
         super().__init__()
         self.positional_encoding = nn.Parameter(torch.zeros(1, 1000, hidden_dim))

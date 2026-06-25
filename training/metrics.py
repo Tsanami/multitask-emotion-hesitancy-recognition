@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 # Метрики из measures.py статьи (per-column macro avg, затем mean)
-from .measures import mf1, uar, acc_func, ccc  # noqa: F401
+from .measures import mf1, uar, acc_func, ccc, mwacc, wf1  # noqa: F401
 
 # Пороги из train.py статьи
 _THR_NEUTRAL = 1.0 - 1.0 / 7.0   # ≈ 0.857
