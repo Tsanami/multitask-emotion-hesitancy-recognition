@@ -49,7 +49,7 @@ class BaseConfig:
     dropout:               float = 0.1
 
     # Лосс
-    flag_emo_weight: bool = False    # веса w_c=(K-k_c)/k_c из статьи (Figure 4)
+    flag_emo_weight: bool = True    # веса w_c=(K-k_c)/k_c
     flag_ah_weight:  bool = True
 
     # ── Разморозка stage-1 энкодеров (опционально) ────────────────────────────

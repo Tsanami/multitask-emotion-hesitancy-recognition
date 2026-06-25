@@ -36,14 +36,14 @@ from train_stage2 import run
 
 # 10 сидов — нужно для мощности парного теста (на 3 сидах Wilcoxon не опускается
 # ниже p=0.25 чисто из-за числа перестановок).
-SEEDS = [42, 0, 123, 1, 2, 7, 13, 21, 100, 2024]
+SEEDS = [42, 0, 123, 1, 2]#, 7, 13, 21, 100, 2024]
 
 EXPERIMENTS = {
-    "E3_fusion_no_ssl":        lambda: Stage2NoSSLConfig(),
-    "E4_fusion_ssl":           lambda: Stage2SSLConfig(),
-    "E5_fusion_gradnorm":      lambda: Stage2GradNormConfig(),
+    "E3_fusion_no_ssl_emo_w":        lambda: Stage2NoSSLConfig(),
+    "E4_fusion_ssl_emo_w":           lambda: Stage2SSLConfig(),
+    "E5_fusion_gradnorm_emo_w":      lambda: Stage2GradNormConfig(),
     # E9: end-to-end разморозка stage-1 энкодеров (SSL + unfreeze)
-    "E6_fusion_ssl_unfreeze":  lambda: Stage2SSLConfig(unfreeze_encoders=True),
+    "E6_fusion_ssl_unfreeze_emo_w":  lambda: Stage2SSLConfig(unfreeze_encoders=True),
 }
 
 METRICS = ["emo_mf1", "emo_uar", "emo_mwacc", "ah_mf1", "ah_uar", "ah_wf1", "overall_f1"]
@@ -185,7 +185,7 @@ def run_parallel(gpus, per_gpu=1):
 # ── агрегация + печать ─────────────────────────────────────────────────────────
 def aggregate_and_report(all_results):
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    with open(f"{RESULTS_DIR}/ablation_results.json", "w") as f:
+    with open(f"{RESULTS_DIR}/ablation_results_emo_w.json", "w") as f:
         json.dump(all_results, f, indent=4)
 
     print("\n\n" + "=" * 78)

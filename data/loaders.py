@@ -12,10 +12,11 @@ def get_stage2_loaders(cfg):
             path_to_emb=getattr(cfg, f"mosei_{part}_emb", None),
             model=cfg.encoder_model,
         )
+        bah_part = part if part != "validation" else "val"
         ah = DatasetEmotionAHFusion(
-            dataset="BAH", part=part if part != "validation" else "val",
+            dataset="BAH", part=bah_part,
             path=cfg.bah_path,
-            path_to_emb=getattr(cfg, f"bah_{part}_emb", None),
+            path_to_emb=getattr(cfg, f"bah_{bah_part}_emb", None),
             model=cfg.encoder_model,
         )
         ds = ConcatDataset([emo, ah])

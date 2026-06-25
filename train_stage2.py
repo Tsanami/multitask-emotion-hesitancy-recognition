@@ -30,6 +30,7 @@ def run(cfg, seed=42):
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
+    print(f"Using device: {device}")
     os.makedirs(cfg.output_dir, exist_ok=True)
 
     # ── Данные ────────────────────────────────────────────────────────────────

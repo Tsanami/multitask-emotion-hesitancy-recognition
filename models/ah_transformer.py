@@ -19,7 +19,7 @@ class AHTransformer(nn.Module):
         super().__init__()
         self.hidden_dim = hidden_dim
 
-        self.ah_proj = nn.Sequential(
+        self.per_proj = nn.Sequential(
             nn.Linear(input_dim_ah, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.Dropout(dropout),
@@ -42,11 +42,11 @@ class AHTransformer(nn.Module):
         )
 
     def forward(self, ah_input=None, return_features=False, **kwargs):
-        ah = self.ah_proj(ah_input)
+        per = self.per_proj(ah_input)
         for layer in self.ah_encoder:
-            ah = ah + layer(ah, ah, ah)
-        out_ah = self.ah_fc_out(ah.mean(dim=1))
+            per = per + layer(per, per, per)
+        out_per = self.ah_fc_out(per.mean(dim=1))
 
         if return_features:
-            return {"ah_scores": out_ah, "last_encoder_features": ah}
-        return {"ah_scores": out_ah}
+            return {"ah_scores": out_per, "last_encoder_features": per}
+        return {"ah_scores": out_per}

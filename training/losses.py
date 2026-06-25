@@ -7,17 +7,20 @@ def compute_emo_weights(emo_train_dataset, device):
     """
     Веса классов эмоций по формуле статьи: w_c = (K - k_c) / k_c
     где K — общее число сэмплов, k_c — число сэмплов класса c.
-    Класс = dominant emotion (argmax по soft-вектору [7]).
+
+    k_c считается по MULTI-LABEL (intensity > 0), а НЕ по argmax-доминанте:
+    при argmax редкие классы (Surprise/Fear) получают многократно завышенный вес
+    (на EAAI: Surprise w≈64 вместо ≈9) и модель начинает их гиперпредсказывать —
+    UAR растёт за счёт обвала precision. См. конвенции проекта (CLAUDE.md).
     """
     labels_matrix = np.array([
         emo_train_dataset[i]["emo_label"].numpy()
         for i in range(len(emo_train_dataset))
     ])  # [N, 7]
 
-    dominant = np.argmax(labels_matrix, axis=1)          # [N]
-    K        = len(dominant)
-    k_c      = np.bincount(dominant, minlength=7).clip(min=1)  # [7]
-    w_c      = (K - k_c) / k_c                            # формула статьи
+    K   = len(labels_matrix)
+    k_c = (labels_matrix > 0).sum(axis=0).clip(min=1)    # [7] multi-label
+    w_c = (K - k_c) / k_c                                 # формула статьи
 
     return torch.tensor(w_c, dtype=torch.float).to(device)
 

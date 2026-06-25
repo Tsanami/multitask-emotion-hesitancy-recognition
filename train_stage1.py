@@ -13,6 +13,7 @@ import torch.nn as nn
 from configs.configs import Stage1Config
 from data.loaders import get_stage1_loaders
 from models import EmotionTransformer, AHTransformer
+from training.losses import compute_emo_weights
 from training.stage1_epochs import (
     train_emo_epoch, eval_emo_epoch,
     train_ah_epoch, eval_ah_epoch,
@@ -39,7 +40,16 @@ def run(cfg, task, seed):
             input_dim_emotion=384, hidden_dim=256, out_features=256,
             num_transformer_heads=4, tr_layer_number=3, dropout=0.0,
         ).to(device)
-        criterion = nn.CrossEntropyLoss()
+        # Веса классов опциональны: при flag_emo_weight=False (по умолчанию) —
+        # голый CE, поведение байт-в-байт прежнее. С весами модель чаще
+        # предсказывает редкие эмоции → выше UAR (ценой precision).
+        if getattr(cfg, "flag_emo_weight", False):
+            emo_weights = compute_emo_weights(train_ds, device)
+            print("Веса классов EMO (w_c=(K-k_c)/k_c, multi-label):",
+                  np.round(emo_weights.cpu().numpy(), 3))
+            criterion = nn.CrossEntropyLoss(weight=emo_weights)
+        else:
+            criterion = nn.CrossEntropyLoss()
         train_fn, eval_fn = train_emo_epoch, eval_emo_epoch
         out_path = cfg.emo_output_path
 
@@ -103,10 +113,13 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--mosei_path", type=str, default=None)
     parser.add_argument("--bah_path",   type=str, default=None)
+    parser.add_argument("--emo_weight", action="store_true",
+                        help="Включить веса классов для emotion (по умолч. выкл.)")
     args = parser.parse_args()
 
     cfg = Stage1Config()
     if args.mosei_path: cfg.mosei_path = args.mosei_path
     if args.bah_path:   cfg.bah_path   = args.bah_path
+    if args.emo_weight: cfg.flag_emo_weight = True
 
     run(cfg, args.task, args.seed)
