@@ -31,6 +31,7 @@ runs/
 .tensorboard/
 results/
 plots/
+tests/
 
 # PyTorch Lightning логи
 lightning_logs/
