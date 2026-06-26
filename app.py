@@ -14,7 +14,7 @@ fusion-модель (стадия 2) выдаёт одновременно:
     ./.venv/bin/python -m streamlit run mehr/app.py
     # или из каталога mehr/:  streamlit run app.py
 """
-import json
+import os
 import sys
 from pathlib import Path
 
@@ -60,6 +60,23 @@ MODEL_REGISTRY = {
 }
 SEED = 42
 
+# Архитектура стадии 2 одинакова у всех четырёх +w моделей (Stage2Config) —
+# зашита здесь, чтобы деплою не требовались машинно-специфичные *.config.json.
+FUSION_ARCH = dict(hidden_dim=256, out_features=512,
+                   num_transformer_heads=4, tr_layer_number=1, dropout=0.1)
+
+# Опциональный фолбэк: если .pt нет локально, скачать из HF Hub. Задаётся через
+# переменную окружения или st.secrets["HF_MODEL_REPO"] (напр. "user/ssl-mehr-demo").
+# Не задано → используются только локальные веса из results/.
+def _hf_repo():
+    repo = os.environ.get("HF_MODEL_REPO")
+    if repo:
+        return repo
+    try:
+        return st.secrets.get("HF_MODEL_REPO")
+    except Exception:
+        return None
+
 EXAMPLES = [
     "I absolutely loved this movie, it was the best thing I've seen all year!",
     "Well, I mean, maybe it's good? I'm not really sure, it kind of depends.",
@@ -88,13 +105,25 @@ def load_encoder():
     return tok, mdl
 
 
+def _resolve_checkpoint(exp: str) -> str:
+    """Путь к .pt: локальный results/ → иначе скачать из HF Hub (если задан репо)."""
+    local = RESULTS / f"{exp}_seed{SEED}.pt"
+    if local.exists():
+        return str(local)
+    repo = _hf_repo()
+    if repo:
+        from huggingface_hub import hf_hub_download
+        return hf_hub_download(repo_id=repo, filename=f"{exp}_seed{SEED}.pt")
+    raise FileNotFoundError(
+        f"Не найден чекпойнт {local.name}. Либо положите .pt в mehr/results/, "
+        f"либо задайте HF_MODEL_REPO (env или st.secrets) для загрузки из HF Hub."
+    )
+
+
 @st.cache_resource(show_spinner="Загрузка fusion-модели…")
 def load_fusion(exp: str):
     device = get_device()
-    cfg_path = RESULTS / f"{exp}_seed{SEED}.config.json"
-    pt_path = RESULTS / f"{exp}_seed{SEED}.pt"
-    with open(cfg_path) as f:
-        cfg = json.load(f)
+    pt_path = _resolve_checkpoint(exp)
 
     emo_model = EmotionTransformer(
         input_dim_emotion=384, hidden_dim=256, out_features=256,
@@ -107,13 +136,11 @@ def load_fusion(exp: str):
 
     model = FusionTransformer(
         emo_model=emo_model, ah_model=ah_model,
-        hidden_dim=cfg["hidden_dim"], out_features=cfg["out_features"],
-        num_transformer_heads=cfg["num_transformer_heads"],
-        tr_layer_number=cfg["tr_layer_number"], dropout=cfg["dropout"],
-        unfreeze_encoders=False,
+        unfreeze_encoders=False, **FUSION_ARCH,
     ).to(device)
     # Полный fusion-чекпойнт содержит и веса энкодеров (важно для E6-разморозки).
-    model.load_state_dict(torch.load(pt_path, map_location=device))
+    # weights_only=True — чекпойнт это чистый state_dict тензоров.
+    model.load_state_dict(torch.load(pt_path, map_location=device, weights_only=True))
     model.eval()
     return model
 
