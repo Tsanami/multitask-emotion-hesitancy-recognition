@@ -37,13 +37,18 @@ def run(cfg, seed=42):
     train_loader, val_loader, test_loader, emo_train, ah_train = get_stage2_loaders(cfg)
 
     # ── Модели стадии 1 ───────────────────────────────────────────────────────
+    # attn_type должен совпадать с тем, под которым обучались stage-1 чекпойнты,
+    # иначе ключи state_dict не сойдутся. "default" → штатный энкодер (без изменений).
+    _attn = getattr(cfg, "attn_type", "default")
     emo_model = EmotionTransformer(
         input_dim_emotion=384, hidden_dim=256, out_features=256,
-        num_transformer_heads=4, tr_layer_number=3, dropout=0.0
+        num_transformer_heads=4, tr_layer_number=3, dropout=0.0,
+        attn_type=_attn,
     ).to(device)
     ah_model = AHTransformer(
         input_dim_ah=384, hidden_dim=512, out_features=128,
-        num_transformer_heads=8, tr_layer_number=1, dropout=0.2
+        num_transformer_heads=8, tr_layer_number=1, dropout=0.2,
+        attn_type=_attn,
     ).to(device)
 
     emo_model.load_state_dict(torch.load(cfg.emo_model_path, map_location=device))

@@ -1,6 +1,6 @@
 import torch
 from tqdm import tqdm
-from .metrics import predict_emotions, mf1, uar
+from .metrics import predict_emotions, mf1, uar, mwacc, wf1
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -62,7 +62,8 @@ def eval_emo_epoch(model, dataloader, criterion, device):
 
     return {"loss": running_loss / len(dataloader),
             "mf1": mf1(trues, preds) if trues else 0.0,
-            "uar": uar(trues, preds) if trues else 0.0}
+            "uar": uar(trues, preds) if trues else 0.0,
+            "mwacc": mwacc(trues, preds) if trues else 0.0}
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -123,4 +124,5 @@ def eval_ah_epoch(model, dataloader, criterion, device):
 
     return {"loss": running_loss / len(dataloader),
             "mf1": mf1([[t] for t in trues], [[p] for p in preds]) if trues else 0.0,
-            "uar": uar([[t] for t in trues], [[p] for p in preds]) if trues else 0.0}
+            "uar": uar([[t] for t in trues], [[p] for p in preds]) if trues else 0.0,
+            "wf1": wf1(trues, preds) if trues else 0.0}

@@ -30,6 +30,7 @@ best_models/
 runs/
 .tensorboard/
 results/
+plots/
 
 # PyTorch Lightning логи
 lightning_logs/

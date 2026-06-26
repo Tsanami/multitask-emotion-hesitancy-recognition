@@ -39,6 +39,7 @@ def run(cfg, task, seed):
         model = EmotionTransformer(
             input_dim_emotion=384, hidden_dim=256, out_features=256,
             num_transformer_heads=4, tr_layer_number=3, dropout=0.0,
+            attn_type=getattr(cfg, "attn_type", "default"),
         ).to(device)
         # Веса классов опциональны: при flag_emo_weight=False (по умолчанию) —
         # голый CE, поведение байт-в-байт прежнее. С весами модель чаще
@@ -57,6 +58,7 @@ def run(cfg, task, seed):
         model = AHTransformer(
             input_dim_ah=384, hidden_dim=512, out_features=128,
             num_transformer_heads=8, tr_layer_number=1, dropout=0.2,
+            attn_type=getattr(cfg, "attn_type", "default"),
         ).to(device)
         # Веса классов для несбалансированного BAH
         labels = [train_ds[i]["ah_label"].item() for i in range(len(train_ds))]

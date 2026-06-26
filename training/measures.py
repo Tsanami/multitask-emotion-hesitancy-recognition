@@ -112,21 +112,3 @@ def acc_func(trues, preds):
         acc.append(mean_absolute_error(trues[:, i], preds[:, i]))
     acc = 1 - np.asarray(acc)
     return np.mean(acc)
-
-def ccc(y_true, y_pred):
-    """
-    This function calculates loss based on concordance correlation coefficient of two series: 'ser1' and 'ser2'
-    TensorFlow methods are used
-    """
-
-    y_true_mean = np.mean(y_true)
-    y_pred_mean = np.mean(y_pred)
-
-    y_true_var = np.mean(np.square(y_true-y_true_mean))
-    y_pred_var = np.mean(np.square(y_pred-y_pred_mean))
-
-    cov = np.mean((y_true-y_true_mean)*(y_pred-y_pred_mean))
-
-    ccc = np.multiply(2., cov) / (y_true_var + y_pred_var + np.square(y_true_mean - y_pred_mean))
-    ccc_loss=np.mean(ccc)
-    return ccc_loss

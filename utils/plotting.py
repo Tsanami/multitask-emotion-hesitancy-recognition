@@ -27,6 +27,11 @@ import numpy as np
 
 EMO_NAMES = ["Neutral", "Anger", "Disgust", "Fear", "Happiness", "Sadness", "Surprise"]
 
+# Папка для PNG (абсолютная, от пакета — работает из любого cwd). Переопределяется
+# переменной окружения PLOTS_DIR. По умолчанию mehr/plots (НЕ results).
+_PKG_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PLOTS_DIR = os.environ.get("PLOTS_DIR", os.path.join(_PKG_DIR, "plots"))
+
 
 # ── Загрузчики ─────────────────────────────────────────────────────────────────
 
@@ -178,11 +183,12 @@ def _try_load_pseudo_hist(client, rid: str) -> list:
 
 def _savefig(fig, path):
     fig.tight_layout()
-    path = 'results/plots/' + path
-    fig.savefig(path, dpi=150)
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+    full = os.path.join(PLOTS_DIR, path)
+    fig.savefig(full, dpi=150)
     import matplotlib.pyplot as plt
     plt.close(fig)
-    print(f"saved {path}")
+    print(f"saved {full}")
 
 
 def _is_stage2(h: dict) -> bool:

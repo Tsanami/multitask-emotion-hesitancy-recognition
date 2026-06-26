@@ -14,22 +14,33 @@ class EmotionTransformer(nn.Module):
         dropout=0.0,
         num_emotions=7,
         positional_encoding=True,
-        **kwargs,                  
+        attn_type="default",
+        **kwargs,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
+        self.attn_type = attn_type
 
         self.emo_proj = nn.Sequential(
             nn.Linear(input_dim_emotion, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.Dropout(dropout),
         )
-        self.emotion_encoder = TransformerModelWithAttention(
-            hidden_dim=hidden_dim,
-            num_heads=num_transformer_heads,
-            num_layers=tr_layer_number,
-            dropout=dropout,
-        )
+        # default → штатный nn.TransformerEncoder (поведение не меняется);
+        # иначе — сменный механизм внимания из models/attention.py
+        if attn_type in (None, "default"):
+            self.emotion_encoder = TransformerModelWithAttention(
+                hidden_dim=hidden_dim,
+                num_heads=num_transformer_heads,
+                num_layers=tr_layer_number,
+                dropout=dropout,
+            )
+        else:
+            from .attention import CustomAttentionEncoder
+            self.emotion_encoder = CustomAttentionEncoder(
+                hidden_dim, num_transformer_heads, tr_layer_number,
+                attn_type=attn_type, dropout=dropout,
+            )
         self.emotion_fc_out = nn.Sequential(
             nn.Linear(hidden_dim, out_features),
             nn.LayerNorm(out_features),

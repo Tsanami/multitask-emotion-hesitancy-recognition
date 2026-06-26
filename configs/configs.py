@@ -18,6 +18,9 @@ class BaseConfig:
     bah_path:     str = BAH_DIR
     output_dir:   str = RESULTS_DIR
     encoder_model: str = "bge-small"       # ключ из SUPPORTED_MODELS
+    # Механизм внимания stage-1 энкодеров: "default" (штатный nn.Transformer) или
+    # сменный {softmax, zeros, mhla, elsa} из models/attention.py.
+    attn_type:    str = "default"
 
     # Пути к кэшу эмбеддингов. Файл есть → загрузить; нет → вычислить и сохранить сюда.
     mosei_train_emb:      str = f"{CACHE_DIR}/CMU-MOSEI_train_eaai_bge-small_embeddings.pkl"
